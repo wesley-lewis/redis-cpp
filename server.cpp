@@ -108,6 +108,40 @@ static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd)
 static void state_req(Conn *conn);
 static void state_res(Conn *conn);
 
+static int32_t do_request(
+    const uint8_t *req, uint32_t reqlen,
+    uint32_t *rescode, uint8_t *res, uint32_t *reslen)
+{
+  std::vector<std::string> cmd;
+  if (0 != parse_req(req, reqlen, cmd))
+  {
+    msg("bad request");
+    return -1;
+  }
+
+  if (cmd.size() == 2 && cmd_is(cmd[0], "get"))
+  {
+    *rescode = do_get(cmd, res, reslen);
+  }
+  else if (cmd.size() == 3 && cmd_is(cmd[0], "set"))
+  {
+    *rescode = do_set(cmd, res, reslen);
+  }
+  else if (cmd.size() == 2 && cmd_is(cmd[0], "del"))
+  {
+    *rescode = do_del(cmd, res, reslen);
+  }
+  else
+  {
+    *rescode = RES_ERR;
+    const char *msg = "Unknown cmd";
+    strcpy((char *)res, msg);
+    *reslen = strlen(msg);
+    return 0;
+  }
+  return 0;
+}
+
 static bool try_one_request(Conn *conn)
 {
   // try to parse a request from the buffer
@@ -130,17 +164,23 @@ static bool try_one_request(Conn *conn)
     return false;
   }
 
-  // got one request, do something with it
-  printf("client says: %.*s\n", len, &conn->rbuf[4]);
+  uint32_t rescode = 0;
+  uint32_t wlen = 0;
+  int32_t err = do_request(
+      &conn->rbuf[4 + 4], len, &rescode, &conn->wbuf[4 + 4], &wlen);
 
-  // generating echoing response
-  memcpy(&conn->wbuf[0], &len, 4);
-  memcpy(&conn->wbuf[4], &conn->rbuf[4], len);
-  conn->wbuf_size = 4 + len;
+  if (err)
+  {
+    conn->state = STATE_END;
+    return false;
+  }
 
-  // remove the request from the buffer.
-  // note: frequent memmove is inefficient.
-  // note: need better handling for production code.
+  wlen += 4;
+  memcpy(&conn->wbuf[0], &wlen, 4);
+  memcpy(&conn->wbuf[4], &rescode, 4);
+  conn->wbuf_size = 4 + wlen;
+
+  // remove the request from the buffer
   size_t remain = conn->rbuf_size - 4 - len;
   if (remain)
   {
@@ -148,7 +188,7 @@ static bool try_one_request(Conn *conn)
   }
   conn->rbuf_size = remain;
 
-  // change state
+  // state chagne
   conn->state = STATE_RES;
   state_res(conn);
 
