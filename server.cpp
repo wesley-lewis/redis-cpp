@@ -12,6 +12,7 @@
 #include <netinet/ip.h>
 #include <vector>
 #include <string>
+#include <map>
 
 const uint32_t k_max_args = 4096;
 
@@ -151,6 +152,11 @@ static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd)
 
 static void state_req(Conn *conn);
 static void state_res(Conn *conn);
+
+static bool cmd_is(const std::string &word, const char *cmd)
+{
+  return 0 == strcasecmp(word.c_str(), cmd);
+}
 
 static int32_t parse_req(
     const uint8_t *data, size_t len, std::vector<std::string> &out)
